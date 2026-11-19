@@ -1,0 +1,50 @@
+name: Update Cloudflare IPs
+
+on:
+  schedule:
+    # UTC 23:17 = Beijing time 07:17 the next day. Once per day.
+    - cron: '17 23 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-cloudflare-ips
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run offline tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Fetch and merge IPs
+        run: python scripts/update_ips.py --output cloudflare.txt
+
+      - name: Commit changed TXT
+        env:
+          TARGET_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          git add -- cloudflare.txt
+          if git diff --cached --quiet; then
+            echo "IP list unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update Cloudflare IP list"
+          git push origin "HEAD:${TARGET_BRANCH}"
